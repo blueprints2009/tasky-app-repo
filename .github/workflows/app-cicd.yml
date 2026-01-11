@@ -1,0 +1,136 @@
+name: Application CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'application/**'
+      - 'kubernetes/**'
+      - '.github/workflows/app-cicd.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'application/**'
+      - 'kubernetes/**'
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: demo-eks
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.image.outputs.tag }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build image tag
+        id: image
+        run: |
+          IMAGE_TAG="${{ secrets.ECR_REGISTRY }}:${{ github.sha }}"
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "Building image: $IMAGE_TAG"
+
+      - name: Build Docker image
+        working-directory: ./application
+        run: |
+          docker build -t ${{ steps.image.outputs.tag }} .
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.image.outputs.tag }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: 0
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Push image to ECR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          docker push ${{ steps.image.outputs.tag }}
+          echo "Image pushed successfully"
+
+  deploy:
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER_NAME }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy to EKS
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          IMAGE_TAG: ${{ github.sha }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+        run: |
+          # Apply namespace and RBAC
+          kubectl apply -f kubernetes/Namespace.yml
+          kubectl apply -f kubernetes/service-account.yml
+          kubectl apply -f kubernetes/Rbac.yml
+
+          # Substitute environment variables in manifests
+          envsubst < kubernetes/Deployment.yml | kubectl apply -f -
+          kubectl apply -f kubernetes/service.yml
+          kubectl apply -f kubernetes/ingress.yml
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/todoapp -n todoapp --timeout=5m
+
+      - name: Get ALB URL
+        id: alb
+        run: |
+          sleep 10
+          ALB_URL=$(kubectl get ingress todoapp-ingress -n todoapp \
+            -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "pending")
+          echo "url=$ALB_URL" >> $GITHUB_OUTPUT
+          echo "Application URL: http://$ALB_URL"
+
+      - name: Summary
+        run: |
+          echo "## Deployment Complete ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ needs.build-and-push.outputs.image-tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ALB**: http://${{ steps.alb.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster**: ${{ env.EKS_CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY

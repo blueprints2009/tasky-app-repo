@@ -16,12 +16,12 @@ spec:
       serviceAccountName: todoapp-sa  # ⚠️ Has cluster-admin
       containers:
       - name: todoapp
-        image: blueprints2009/tasky:latest
+        image: ${ECR_REGISTRY}:${IMAGE_TAG}
         ports:
-        - containerPort: 3000
+        - containerPort: 8080
         env:
-        - name: MONGODB_URI  # ⚠️ Credentials in env var
-          value: "mongodb://mongouser:password@10.0.1.50:27017/todoapp"
+        - name: MONGODB_URI
+          value: "${MONGODB_URI}"
         - name: NODE_ENV
           value: "production"
         resources:
