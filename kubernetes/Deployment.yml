@@ -16,7 +16,7 @@ spec:
       serviceAccountName: todoapp-sa  # ⚠️ Has cluster-admin
       containers:
       - name: todoapp
-        image: blueprints2009/tasky:v4
+        image: blueprints2009/tasky:latest
         ports:
         - containerPort: 3000
         env:
