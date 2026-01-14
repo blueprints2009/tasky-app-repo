@@ -1,1 +1,1 @@
-# wiz-exercise
+# Tasky-Exercise
