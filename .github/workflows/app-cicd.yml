@@ -111,6 +111,11 @@ jobs:
           export ECR_REGISTRY="${FULL_IMAGE%:*}"
           export IMAGE_TAG="${FULL_IMAGE##*:}"
 
+          echo "FULL_IMAGE=$FULL_IMAGE"
+          echo "ECR_REGISTRY=$ECR_REGISTRY"
+          echo "IMAGE_TAG=$IMAGE_TAG"
+
+
           # Apply namespace and RBAC
           kubectl apply -f kubernetes/Namespace.yml
           kubectl apply -f kubernetes/service-account.yml
