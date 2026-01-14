@@ -16,7 +16,7 @@ spec:
       serviceAccountName: todoapp-sa
       containers:
       - name: todoapp
-        image: ${ECR_REGISTRY}:${IMAGE_TAG}
+        image: "${ECR_REGISTRY}:${IMAGE_TAG}"
         ports:
         - containerPort: 8080
         env:
