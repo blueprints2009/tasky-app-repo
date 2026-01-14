@@ -47,16 +47,15 @@ jobs:
       - name: Build image tag
         id: image
         run: |
-          TIMESTAMP=$(date +%s)
-          IMAGE="${{ secrets.ECR_REGISTRY }}:${TIMESTAMP}"
+          export ECR_REGISTRY="${{ secrets.ECR_REGISTRY }}"
+          export IMAGE_TAG="${GITHUB_SHA::7}"
 
-          echo "IMAGE=$IMAGE"
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Building image: ${ECR_REGISTRY}:${IMAGE_TAG}"
 
       - name: Build Docker image
         working-directory: ./application
         run: |
-          docker build -t "${{ steps.image.outputs.image }}" .
+          docker build -t "${ECR_REGISTRY}:${IMAGE_TAG}" .
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
@@ -76,7 +75,7 @@ jobs:
       - name: Push image to ECR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          docker push "${{ steps.image.outputs.image }}"
+          docker push "${ECR_REGISTRY}:${IMAGE_TAG}"
           echo "Image pushed successfully"
 
   deploy:
@@ -106,17 +105,18 @@ jobs:
           # FULL_IMAGE: ${{ needs['build-and-push'].outputs.image_tag }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
-          FULL_IMAGE="${{ needs['build-and-push'].outputs.image_tag }}"
-          export FULL_IMAGE
-          echo "Deploying image: $FULL_IMAGE"
-          echo $MONGODB_URI
+          export ECR_REGISTRY="${{ secrets.ECR_REGISTRY }}"
+          export IMAGE_TAG="${GITHUB_SHA::7}"
+          export MONGODB_URI="${{ secrets.MONGODB_URI }}"
+
+          echo "Deploying image: ${ECR_REGISTRY}:${IMAGE_TAG}"    
 
           kubectl apply -f kubernetes/Namespace.yml
           kubectl apply -f kubernetes/service-account.yml
           kubectl apply -f kubernetes/Rbac.yml
 
-          envsubst '${FULL_IMAGE} ${MONGODB_URI}' \
-            < kubernetes/Deployment.yml | kubectl apply -f -
+          envsubst '${ECR_REGISTRY} ${IMAGE_TAG} ${MONGODB_URI}' \
+          < kubernetes/Deployment.yml | kubectl apply -f -
 
           kubectl rollout status deployment/todoapp -n todoapp --timeout=5m
           
