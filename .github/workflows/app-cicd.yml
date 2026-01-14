@@ -26,8 +26,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    outputs:
-      image_tag: "${{ secrets.ECR_REGISTRY }}:${{ github.sha }}"
+    # outputs:
+    #   image_tag: ${{ steps.image.outputs.image }}
 
     steps:
       - name: Checkout code
@@ -99,7 +99,6 @@ jobs:
 
       - name: Deploy to EKS
         env:
-          # FULL_IMAGE: ${{ needs['build-and-push'].outputs.image_tag }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
         run: |
           export ECR_REGISTRY="${{ secrets.ECR_REGISTRY }}"
